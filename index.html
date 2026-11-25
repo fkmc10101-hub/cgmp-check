@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>CGMP 기록 점검 도우미</title>
+<style>
+:root{--ink:#17202a;--sub:#5b6773;--line:#dde3e9;--bg:#f5f7f9;--card:#fff;--accent:#0f6e68;--accent-soft:#e3f2f0;--warn:#b54708;--warn-soft:#fff3e6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 "Noto Sans KR","Malgun Gothic",sans-serif}
+header{background:#fff;border-bottom:1px solid var(--line);padding:14px 20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+h1{font-size:19px;margin:0}
+.sub{color:var(--sub);font-size:12px}
+.actions{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 14px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+input[type=date]{font:inherit;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+main{padding:16px 20px 60px;max-width:1240px;margin:0 auto}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.tabs button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:16px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top;white-space:nowrap}
+th{color:var(--sub);font-weight:600;background:#fafbfc}
+td[contenteditable]{outline:none}
+td[contenteditable]:focus{background:var(--accent-soft)}
+td.bad{background:var(--warn-soft);box-shadow:inset 0 0 0 1px #f2b679}
+td:empty::after{content:"(비어 있음)";color:#a8b1bb}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff}
+.stat b{display:block;font-size:24px;color:var(--warn)}
+.stat.zero b{color:var(--accent)}
+.art{border:0;background:var(--accent-soft);color:var(--accent);font-weight:700;padding:3px 8px;border-radius:6px}
+#results td{white-space:normal}
+#results td:first-child{white-space:nowrap}
+.note{color:var(--sub);font-size:12px}
+dialog{border:1px solid var(--line);border-radius:12px;max-width:620px;padding:20px}
+dialog::backdrop{background:rgba(23,32,42,.45)}
+#caption{position:fixed;left:0;right:0;bottom:0;background:rgba(23,32,42,.94);color:#fff;font-size:26px;font-weight:700;text-align:center;padding:20px;display:none;z-index:20}
+#cover{position:fixed;inset:0;background:#0f3d3a;color:#fff;display:none;flex-direction:column;justify-content:center;align-items:center;text-align:center;z-index:30;padding:40px}
+#cover h2{font-size:46px;margin:0 0 18px}
+#cover p{font-size:23px;margin:6px 0;color:#cfe8e5}
+#fakeDialog{display:none;position:fixed;inset:0;background:rgba(23,32,42,.45);z-index:10;align-items:center;justify-content:center}
+#fakeDialog>div{background:#fff;border-radius:14px;padding:26px 30px;max-width:760px;font-size:19px}
+@media (max-width:600px){.actions{margin-left:0}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>CGMP 기록 점검 도우미</h1>
+    <div class="sub">우수화장품 제조 및 품질관리기준(식약처 고시 제2024-46호) 조항을 점검 규칙으로 옮긴 데모 · 모든 데이터는 가상</div>
+  </div>
+  <div class="actions">
+    <label class="sub">기준일 <input type="date" id="today" value="2026-11-25"></label>
+    <button id="reset">예시 되돌리기</button>
+    <button class="primary" id="run">점검 실행</button>
+  </div>
+</header>
+<main>
+  <div class="tabs" id="tabs"></div>
+  <div class="card scroll" id="data"></div>
+  <p class="note">칸을 눌러 값을 고친 뒤 다시 점검할 수 있습니다. 입력한 내용은 이 브라우저 안에서만 처리되고 어디로도 전송되지 않습니다.</p>
+  <section id="out" style="display:none">
+    <div class="summary" id="summary"></div>
+    <div class="card scroll"><table id="results"></table></div>
+    <button id="csv">점검 결과 CSV 저장</button>
+    <p class="note">같은 입력에는 항상 같은 결과가 나오는 규칙 기반 점검입니다. 도구는 확인할 곳을 알려 줄 뿐이며 적합·일탈 판정은 품질 담당자가 합니다. 평가 주기(1년)와 회신 기한(7일)은 고시에 정해진 값이 아니라 사내 기준을 가정한 예시입니다.</p>
+  </section>
+</main>
+<dialog id="law"><h3 id="lawT"></h3><p id="lawB"></p><form method="dialog"><button>닫기</button></form></dialog>
+<div id="fakeDialog"><div><h3 id="fT"></h3><p id="fB"></p></div></div>
+<div id="cover"></div>
+<div id="caption"></div>
+<script>
+const LAW = {
+ "11-1":["제11조(입고관리) ①","화장품제조업자는 원자재 공급자를 평가하여 선정하고, 관리감독을 적절히 수행하여 입고관리가 철저히 이루어지도록 하여야 한다."],
+ "11-5":["제11조(입고관리) ⑤","입고된 원자재는 \"적합\", \"부적합\", \"검사 중\" 등으로 상태를 표시하여야 한다. 다만, 동일 수준의 보증이 가능한 다른 시스템이 있다면 대체할 수 있다."],
+ "23-6":["제23조(위탁계약) ⑥","수탁업체에서 생성한 위ㆍ수탁 관련 자료는 유지되어 위탁업체에서 이용 가능해야 한다."],
+ "25-1":["제25조(불만처리) ①","불만처리담당자는 제품에 대한 모든 불만을 취합하고 신속하게 조사해 적절한 조치를 취하여야 하며, 불만조사 및 추적조사 내용, 처리결과 및 향후 대책, 다른 제조번호의 제품에도 영향이 없는지 점검한 사항 등을 기록ㆍ유지하여야 한다. (각 호 요약)"],
+ "27":["제27조(변경관리)","제품의 품질에 영향을 미치는 원자재, 제조공정 등을 변경할 경우에는 이를 문서화하고 품질책임자에 의해 승인된 후 수행하여야 한다."],
+ "29-2":["제29조(문서관리) ②","모든 문서의 작성 및 개정ㆍ승인ㆍ배포ㆍ회수 또는 폐기 등 관리에 관한 사항이 포함된 문서관리규정을 작성하고 유지하여야 한다."],
+ "29-3":["제29조(문서관리) ③","문서는 작업자가 알아보기 쉽도록 작성하여야 하며 작성된 문서에는 권한을 가진 사람의 서명과 승인연월일이 있어야 한다."],
+ "29-5":["제29조(문서관리) ⑤","문서를 개정할 때는 개정사유 및 개정연월일 등을 기재하고 권한을 가진 사람의 승인을 받아야 하며 개정 번호를 지정해야 한다. (요약)"]
+};
+const SAMPLE = {
+ docs:{name:"문서대장",cols:["문서번호","문서명","현행 개정","현장 배포본","개정사유","승인자 서명","승인일"],rows:[
+  ["SOP-QA-001","문서관리규정","3","3","양식 변경","이○○","2026-03-02"],
+  ["SOP-PR-004","충전 공정","5","4","설비 교체","박○○","2026-10-12"],
+  ["SOP-QC-002","검체 채취","2","2","","이○○","2026-07-01"],
+  ["STD-PD-011","제품표준서(크림)","1","1","원료 변경","",""]]},
+ mats:{name:"원자재",cols:["관리번호","원료명","공급업체","상태 표시","공급업체 평가일"],rows:[
+  ["RM-2611-01","글리세린","A사","적합","2026-04-10"],
+  ["RM-2611-02","나이아신아마이드","B사","","2026-02-20"],
+  ["RM-2611-03","판테놀","C사","검사 중","2025-08-05"],
+  ["RM-2611-04","향료","D사","부적합","2026-06-30"]]},
+ outs:{name:"위·수탁 자료",cols:["수탁사","요청 자료","요청일","회신일"],rows:[
+  ["가수탁","제조기록 사본","2026-11-02","2026-11-06"],
+  ["나수탁","시험성적서","2026-11-03",""],
+  ["다수탁","설비 세척기록","2026-11-23",""]]},
+ chg:{name:"변경관리",cols:["변경번호","변경 내용","품질책임자 승인일","시행일"],rows:[
+  ["CC-26-014","원료 공급처 변경","2026-09-10","2026-09-20"],
+  ["CC-26-015","혼합 시간 변경","","2026-10-05"],
+  ["CC-26-016","포장 자재 변경","2026-11-12","2026-11-01"]]},
+ cmp:{name:"불만처리",cols:["접수번호","접수일","제품 / 제조번호","타 제조번호 영향 점검","처리 결과"],rows:[
+  ["CP-26-031","2026-10-02","수분크림 / L2609A","영향 없음 확인","교환 완료"],
+  ["CP-26-032","2026-10-20","선크림 / L2610B","",""]]}
+};
+let data, cur="docs", found=[];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const days=(a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
+function reset(){data=JSON.parse(JSON.stringify(SAMPLE));found=[];$("#out").style.display="none";draw()}
+function draw(){
+  $("#tabs").innerHTML=Object.entries(data).map(([k,v])=>`<button data-k="${k}" class="${k===cur?'on':''}">${v.name} ${v.rows.length}</button>`).join("");
+  const t=data[cur];
+  $("#data").innerHTML=`<table><tr>${t.cols.map(c=>`<th>${c}</th>`).join("")}</tr>${t.rows.map((r,i)=>`<tr>${r.map((v,j)=>`<td contenteditable data-i="${i}" data-j="${j}" class="${found.some(f=>f.k===cur&&f.i===i&&f.cols.includes(j))?'bad':''}">${esc(v)}</td>`).join("")}</tr>`).join("")}</table>`;
+}
+function check(){
+  const now=$("#today").value; found=[];
+  const add=(k,i,cols,art,target,msg,todo)=>found.push({k,i,cols,art,target,msg,todo});
+  data.docs.rows.forEach((r,i)=>{const[no,nm,rev,dist,why,sign,date]=r.map(x=>x.trim());
+    if(!sign||!date)add("docs",i,[5,6],"29-3",no,`${nm}: 승인자 서명 또는 승인일이 없음`,"승인 완료 전 현장 사용 여부 확인");
+    if(rev!==dist)add("docs",i,[2,3],"29-2",no,`${nm}: 현행 ${rev}차인데 현장에는 ${dist}차 배포`,"구본 회수, 개정본 재배부");
+    if(Number(rev)>0&&!why)add("docs",i,[4],"29-5",no,`${nm}: 개정사유 미기재`,"개정사유 보완 후 승인 확인")});
+  data.mats.rows.forEach((r,i)=>{const[no,nm,sup,st,ev]=r.map(x=>x.trim());
+    if(!["적합","부적합","검사 중"].includes(st))add("mats",i,[3],"11-5",no,`${nm}: 상태 표시 없음 또는 알 수 없는 값`,"사용 보류, 상태 확인 후 표시");
+    if(!ev||days(ev,now)>365)add("mats",i,[4],"11-1",no,`${nm}(${sup}): 공급업체 평가 1년 초과`,"재평가 계획 수립")});
+  data.outs.rows.forEach((r,i)=>{const[v,doc,req,res]=r.map(x=>x.trim());
+    if(!res&&days(req,now)>7)add("outs",i,[3],"23-6",v,`${doc}: 요청 후 ${days(req,now)}일째 미회신`,"재요청하고 이력 남기기")});
+  data.chg.rows.forEach((r,i)=>{const[no,what,ap,ex]=r.map(x=>x.trim());
+    if(ex&&(!ap||ap>ex))add("chg",i,[2,3],"27",no,`${what}: ${ap?'승인('+ap+')보다 먼저 시행('+ex+')':'승인 없이 시행'}`,"일탈 해당 여부 판단, 영향 제조번호 확인")});
+  data.cmp.rows.forEach((r,i)=>{const[no,dt,prod,imp,res]=r.map(x=>x.trim());
+    if(!imp||!res)add("cmp",i,[3,4],"25-1",no,`${prod}: ${[!imp?'타 제조번호 영향 점검':'',!res?'처리 결과':''].filter(Boolean).join(', ')} 기록 없음`,"조사 진행 상황 확인 후 기록")});
+  render(); draw();
+}
+function render(){
+  $("#out").style.display="block";
+  const groups=[["문서관리 (제29조)",["29-2","29-3","29-5"]],["원자재 (제11조)",["11-1","11-5"]],["위탁 (제23조)",["23-6"]],["변경관리 (제27조)",["27"]],["불만처리 (제25조)",["25-1"]]];
+  $("#summary").innerHTML=groups.map(([n,a])=>{const c=found.filter(f=>a.includes(f.art)).length;return `<div class="stat ${c?'':'zero'}">${n}<b>${c}건</b></div>`}).join("");
+  $("#results").innerHTML=`<tr><th>근거 조항</th><th>대상</th><th>발견 내용</th><th>담당자 확인 사항</th></tr>`+(found.map(f=>`<tr><td><button class="art" data-a="${f.art}">${LAW[f.art][0]}</button></td><td>${esc(f.target)}</td><td>${esc(f.msg)}</td><td>${esc(f.todo)}</td></tr>`).join("")||`<tr><td colspan="4">확인할 항목이 없습니다.</td></tr>`);
+}
+document.addEventListener("click",e=>{
+  const k=e.target.dataset.k; if(k){cur=k;draw()}
+  const a=e.target.dataset.a; if(a){$("#lawT").textContent=LAW[a][0];$("#lawB").textContent=LAW[a][1];$("#law").showModal()}
+});
+document.addEventListener("input",e=>{const d=e.target.dataset; if(d.i!==undefined)data[cur].rows[d.i][d.j]=e.target.textContent});
+$("#run").onclick=check; $("#reset").onclick=reset;
+$("#csv").onclick=()=>{const rows=[["근거 조항","대상","발견 내용","담당자 확인 사항"],...found.map(f=>[LAW[f.art][0],f.target,f.msg,f.todo])];
+  const b=new Blob(["﻿"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\r\n")],{type:"text/csv"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="cgmp_check.csv";a.click()};
+reset();
+
+/* 시연 영상용 장면: ?scene=1..7 */
+const scene=Number(new URLSearchParams(location.search).get("scene"));
+if(scene){
+  document.body.style.zoom="1.15";
+  const cap=t=>{$("#caption").textContent=t;$("#caption").style.display="block"};
+  const cover=h=>{$("#cover").innerHTML=h;$("#cover").style.display="flex"};
+  if(scene===1)cover("<h2>CGMP 기록 점검 도우미</h2><p>화장품 CGMP 조항을 점검 규칙으로 옮겼습니다</p><p>김영혜 · 데이터는 모두 가상입니다</p>");
+  if(scene===2)cap("① 문서·원자재·위수탁·변경·불만 기록을 한 화면에");
+  if(scene>=3&&scene<=6){check()}
+  if(scene===3){$("#data").style.display="none";document.querySelector("main>.note").style.display="none";cap("② 버튼 한 번으로 조항별 확인 대상을 집계")}
+  if(scene===4){$("#tabs").style.display=$("#data").style.display="none";document.querySelector("main>.note").style.display="none";$("#summary").style.display="none";cap("③ 무엇이 왜 문제인지, 다음에 확인할 일까지")}
+  if(scene===5){$("#fT").textContent=LAW["29-2"][0];$("#fB").textContent=LAW["29-2"][1];$("#fakeDialog").style.display="flex";cap("④ 근거 조항 원문을 바로 확인")}
+  if(scene===6){data.docs.rows[1][3]="5";check();cap("⑤ 구본을 회수하고 값을 고치면 해당 항목이 사라집니다")}
+  if(scene===7)cover("<h2>누락 찾기는 자동으로,<br>판정은 품질 담당자가</h2><p>같은 입력에는 같은 결과 · 근거 조항 표시 · 데이터 외부 전송 없음</p>");
+}
+</script>
+</body>
+</html>
